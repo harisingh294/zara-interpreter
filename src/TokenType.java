@@ -1,0 +1,7 @@
+public enum TokenType {
+    SET, SHOW, WHEN, LOOP,
+    NUMBER, STRING, IDENTIFIER,
+    PLUS, MINUS, STAR, SLASH,
+    GREATER, LESS, EQEQ, EQUALS,
+    COLON, NEWLINE, EOF
+}
