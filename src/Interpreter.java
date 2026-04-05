@@ -5,24 +5,23 @@ import java.util.List;
 
 public class Interpreter {
 
+    // Runs a ZARA program given as a source code String
     public void run(String sourceCode) {
 
-        // Stage 1: TOKENIZE
-        Tokenizer tokenizer = new Tokenizer(sourceCode);
-        List<Token> tokens = tokenizer.tokenize();
+        // Stage 1: Tokenize
+        List<Token> tokens = new Tokenizer(sourceCode).tokenize();
 
-        // Stage 2: PARSE
+        // Stage 2: Parse
         Parser parser = new Parser(tokens);
-        parser.setSource(sourceCode); // needed for indentation block detection
+        parser.setSource(sourceCode);   // needed for indentation block detection
         List<Instruction> instructions = parser.parse();
 
-        // Stage 3: EXECUTE
+        // Stage 3: Execute
         Environment env = new Environment();
-        for (Instruction instruction : instructions) {
-            instruction.execute(env);
-        }
+        instructions.forEach(inst -> inst.execute(env));  // .forEach() terminal op
     }
 
+    // Entry point — reads a .zara file and runs it
     public static void main(String[] args) throws IOException {
         if (args.length == 0) {
             System.out.println("No file given. Running built-in demo...\n");
@@ -39,7 +38,7 @@ public class Interpreter {
         System.out.println("=== Program 1: Arithmetic (expected: 16) ===");
         interp.run("set x = 10\nset y = 3\nset result = x + y * 2\nshow result\n");
 
-        System.out.println("\n=== Program 2: Strings (expected: Sitare / Hello from ZARA) ===");
+        System.out.println("\n=== Program 2: Strings ===");
         interp.run("set name = \"Sitare\"\nshow name\nshow \"Hello from ZARA\"\n");
 
         System.out.println("\n=== Program 3: Conditional (expected: Pass) ===");
