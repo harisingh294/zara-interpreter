@@ -3,7 +3,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-/**
+/** 
  * Parser — Stage 2 of the interpreter pipeline.
  *
  * Reads the List<Token> from the Tokenizer and builds
@@ -63,10 +63,6 @@ public class Parser {
         }
     }
 
-    // ─────────────────────────────────────────────
-    // PUBLIC ENTRY POINT
-    // ─────────────────────────────────────────────
-
     public List<Instruction> parse() {
         List<Instruction> instructions = new ArrayList<>();
         while (!isAtEnd()) {
@@ -77,10 +73,6 @@ public class Parser {
         }
         return instructions;
     }
-
-    // ─────────────────────────────────────────────
-    // INSTRUCTION PARSERS
-    // ─────────────────────────────────────────────
 
     private Instruction parseInstruction() {
         switch (peek().getType()) {
