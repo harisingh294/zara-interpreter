@@ -2,6 +2,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Tokenizer — Stage 1 of the interpreter pipeline.
+ *
+ * Reads raw ZARA source code character by character and
+ * produces a flat List<Token>.
+ *
+ * Example:
+ *   Input:  "set x = 10"
+ *   Output: [SET:"set", IDENTIFIER:"x", EQUALS:"=", NUMBER:"10", NEWLINE, EOF]
+ */
 public class Tokenizer {
 
     

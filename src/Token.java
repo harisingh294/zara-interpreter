@@ -1,3 +1,9 @@
+// ============================================================
+// Token.java
+// One labelled piece of source code.
+// Example: the word "set" on line 1 becomes Token(SET,"set",1)
+// Immutable - fields are set once in constructor, never changed.
+// ============================================================
 public class Token {
 
     private final TokenType type;   // what kind of token is this?
