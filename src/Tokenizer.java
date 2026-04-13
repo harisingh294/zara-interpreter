@@ -1,5 +1,6 @@
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Tokenizer — Stage 1 of the interpreter pipeline.
@@ -13,9 +14,28 @@ import java.util.List;
  */
 public class Tokenizer {
 
-    private final String source;
-    private int pos;   // current character position
-    private int line;  // current line number (1-based)
+    
+    private static final Map<String, TokenType> KEYWORDS = Map.of(
+        "set",  TokenType.SET,
+        "show", TokenType.SHOW,
+        "when", TokenType.WHEN,
+        "loop", TokenType.LOOP
+    );
+
+    
+    private static final Map<Character, TokenType> SINGLE_OPS = Map.of(
+        '+', TokenType.PLUS,
+        '-', TokenType.MINUS,
+        '*', TokenType.STAR,
+        '/', TokenType.SLASH,
+        '>', TokenType.GREATER,
+        '<', TokenType.LESS,
+        ':', TokenType.COLON
+    );
+
+    private final String source;  // full source code — immutable (final)
+    private int pos;              // current character position
+    private int line;             // current line number (starts at 1)
 
     public Tokenizer(String source) {
         this.source = source;
@@ -28,18 +48,21 @@ public class Tokenizer {
 
         while (pos < source.length()) {
 
-            // Skip spaces and tabs (NOT newlines — those are meaningful)
-            if (source.charAt(pos) == ' ' || source.charAt(pos) == '\t') {
+            char c = source.charAt(pos);
+
+           
+            if (c == ' ' || c == '\t') {
                 pos++;
                 continue;
             }
 
-            char c = source.charAt(pos);
+            // skip Windows-style carriage return \r
+            if (c == '\r') {
+                pos++;
+                continue;
+            }
 
-            // Windows carriage return — skip silently
-            if (c == '\r') { pos++; continue; }
-
-            // Newline — marks end of a statement
+            // newline marks the end of a statement — produce a NEWLINE token
             if (c == '\n') {
                 tokens.add(new Token(TokenType.NEWLINE, "\n", line));
                 line++;
@@ -47,22 +70,22 @@ public class Tokenizer {
                 continue;
             }
 
-            // Comment: # anything until end of line
+            // '#' starts a comment — skip everything until end of line
             if (c == '#') {
-                while (pos < source.length() && source.charAt(pos) != '\n') pos++;
+                while (pos < source.length() && source.charAt(pos) != '\n') {
+                    pos++;
+                }
                 continue;
             }
 
-            // Single-character operators
-            if (c == '+') { tokens.add(new Token(TokenType.PLUS,    "+", line)); pos++; continue; }
-            if (c == '-') { tokens.add(new Token(TokenType.MINUS,   "-", line)); pos++; continue; }
-            if (c == '*') { tokens.add(new Token(TokenType.STAR,    "*", line)); pos++; continue; }
-            if (c == '/') { tokens.add(new Token(TokenType.SLASH,   "/", line)); pos++; continue; }
-            if (c == '>') { tokens.add(new Token(TokenType.GREATER, ">", line)); pos++; continue; }
-            if (c == '<') { tokens.add(new Token(TokenType.LESS,    "<", line)); pos++; continue; }
-            if (c == ':') { tokens.add(new Token(TokenType.COLON,   ":", line)); pos++; continue; }
+            // Map.containsKey + Map.get replaces 7 separate if-statements
+            if (SINGLE_OPS.containsKey(c)) {
+                tokens.add(new Token(SINGLE_OPS.get(c), String.valueOf(c), line));
+                pos++;
+                continue;
+            }
 
-            // = or ==
+            // = or == — need to look ahead one character
             if (c == '=') {
                 if (pos + 1 < source.length() && source.charAt(pos + 1) == '=') {
                     tokens.add(new Token(TokenType.EQEQ, "==", line));
@@ -74,56 +97,68 @@ public class Tokenizer {
                 continue;
             }
 
-            // String literal: "hello world"
+            // string literal  "hello world"
             if (c == '"') {
-                pos++; // skip opening quote
-                StringBuilder sb = new StringBuilder();
-                while (pos < source.length() && source.charAt(pos) != '"') {
-                    sb.append(source.charAt(pos));
-                    pos++;
-                }
-                if (pos < source.length()) pos++; // skip closing quote
-                tokens.add(new Token(TokenType.STRING, sb.toString(), line));
+                tokens.add(readString());
                 continue;
             }
 
-            // Number literal: 10, 3, 3.14
+            // number literal  10  or  3.14
             if (Character.isDigit(c)) {
-                StringBuilder sb = new StringBuilder();
-                while (pos < source.length() &&
-                       (Character.isDigit(source.charAt(pos)) || source.charAt(pos) == '.')) {
-                    sb.append(source.charAt(pos));
-                    pos++;
-                }
-                tokens.add(new Token(TokenType.NUMBER, sb.toString(), line));
+                tokens.add(readNumber());
                 continue;
             }
 
-            // Keywords and variable names (identifiers)
+            // keyword or variable name (identifier)
             if (Character.isLetter(c) || c == '_') {
-                StringBuilder sb = new StringBuilder();
-                while (pos < source.length() &&
-                       (Character.isLetterOrDigit(source.charAt(pos)) || source.charAt(pos) == '_')) {
-                    sb.append(source.charAt(pos));
-                    pos++;
-                }
-                String word = sb.toString();
-                switch (word) {
-                    case "set":  tokens.add(new Token(TokenType.SET,        word, line)); break;
-                    case "show": tokens.add(new Token(TokenType.SHOW,       word, line)); break;
-                    case "when": tokens.add(new Token(TokenType.WHEN,       word, line)); break;
-                    case "loop": tokens.add(new Token(TokenType.LOOP,       word, line)); break;
-                    default:     tokens.add(new Token(TokenType.IDENTIFIER, word, line)); break;
-                }
+                tokens.add(readWord());
                 continue;
             }
 
-            // Unknown character — warn and skip
+            // unknown character — warn and skip
             System.err.println("Warning: unknown character '" + c + "' at line " + line);
             pos++;
         }
 
+        // EOF token tells the Parser when to stop
         tokens.add(new Token(TokenType.EOF, "", line));
         return tokens;
+    }
+
+
+    // reads:  "hello world"  →  Token(STRING, "hello world", line)
+    private Token readString() {
+        pos++; // skip opening "
+        StringBuilder sb = new StringBuilder();
+        while (pos < source.length() && source.charAt(pos) != '"') {
+            sb.append(source.charAt(pos));
+            pos++;
+        }
+        if (pos < source.length()) pos++; // skip closing "
+        return new Token(TokenType.STRING, sb.toString(), line);
+    }
+
+
+    private Token readNumber() {
+        StringBuilder sb = new StringBuilder();
+        while (pos < source.length() &&
+               (Character.isDigit(source.charAt(pos)) || source.charAt(pos) == '.')) {
+            sb.append(source.charAt(pos));
+            pos++;
+        }
+        return new Token(TokenType.NUMBER, sb.toString(), line);
+    }
+
+    
+    private Token readWord() {
+        StringBuilder sb = new StringBuilder();
+        while (pos < source.length() &&
+               (Character.isLetterOrDigit(source.charAt(pos)) || source.charAt(pos) == '_')) {
+            sb.append(source.charAt(pos));
+            pos++;
+        }
+        String word = sb.toString();
+        TokenType type = KEYWORDS.getOrDefault(word, TokenType.IDENTIFIER);
+        return new Token(type, word, line);
     }
 }
