@@ -2,19 +2,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Tokenizer — Stage 1 of the interpreter pipeline.
- *
- * Reads raw ZARA source code character by character and
- * produces a flat List<Token>.
- *
- * Example:
- *   Input:  "set x = 10"
- *   Output: [SET:"set", IDENTIFIER:"x", EQUALS:"=", NUMBER:"10", NEWLINE, EOF]
- */
 public class Tokenizer {
 
-    
     private static final Map<String, TokenType> KEYWORDS = Map.of(
         "set",  TokenType.SET,
         "show", TokenType.SHOW,
@@ -22,7 +11,6 @@ public class Tokenizer {
         "loop", TokenType.LOOP
     );
 
-    
     private static final Map<Character, TokenType> SINGLE_OPS = Map.of(
         '+', TokenType.PLUS,
         '-', TokenType.MINUS,
@@ -33,14 +21,14 @@ public class Tokenizer {
         ':', TokenType.COLON
     );
 
-    private final String source;  // full source code — immutable (final)
-    private int pos;              // current character position
-    private int line;             // current line number (starts at 1)
+    private final String source;
+    private int pos;
+    private int line;
 
     public Tokenizer(String source) {
         this.source = source;
-        this.pos    = 0;
-        this.line   = 1;
+        this.pos = 0;
+        this.line = 1;
     }
 
     public List<Token> tokenize() {
@@ -50,19 +38,19 @@ public class Tokenizer {
 
             char c = source.charAt(pos);
 
-           
+            // skip spaces
             if (c == ' ' || c == '\t') {
                 pos++;
                 continue;
             }
 
-            // skip Windows-style carriage return \r
+            // skip \r (Windows)
             if (c == '\r') {
                 pos++;
                 continue;
             }
 
-            // newline marks the end of a statement — produce a NEWLINE token
+            // newline
             if (c == '\n') {
                 tokens.add(new Token(TokenType.NEWLINE, "\n", line));
                 line++;
@@ -70,7 +58,7 @@ public class Tokenizer {
                 continue;
             }
 
-            // '#' starts a comment — skip everything until end of line
+            // comment
             if (c == '#') {
                 while (pos < source.length() && source.charAt(pos) != '\n') {
                     pos++;
@@ -78,14 +66,14 @@ public class Tokenizer {
                 continue;
             }
 
-            // Map.containsKey + Map.get replaces 7 separate if-statements
+            // operators
             if (SINGLE_OPS.containsKey(c)) {
                 tokens.add(new Token(SINGLE_OPS.get(c), String.valueOf(c), line));
                 pos++;
                 continue;
             }
 
-            // = or == — need to look ahead one character
+            // '=' or '=='
             if (c == '=') {
                 if (pos + 1 < source.length() && source.charAt(pos + 1) == '=') {
                     tokens.add(new Token(TokenType.EQEQ, "==", line));
@@ -97,68 +85,95 @@ public class Tokenizer {
                 continue;
             }
 
-            // string literal  "hello world"
+            // string
             if (c == '"') {
                 tokens.add(readString());
                 continue;
             }
 
-            // number literal  10  or  3.14
+            // number
             if (Character.isDigit(c)) {
                 tokens.add(readNumber());
                 continue;
             }
 
-            // keyword or variable name (identifier)
+            // identifier / keyword
             if (Character.isLetter(c) || c == '_') {
                 tokens.add(readWord());
                 continue;
             }
 
-            // unknown character — warn and skip
-            System.err.println("Warning: unknown character '" + c + "' at line " + line);
-            pos++;
+            // ❗ FIX 3: unknown character → throw error (not just warning)
+            throw new RuntimeException("Invalid character '" + c + "' at line " + line);
         }
 
-        // EOF token tells the Parser when to stop
         tokens.add(new Token(TokenType.EOF, "", line));
         return tokens;
     }
 
-
-    // reads:  "hello world"  →  Token(STRING, "hello world", line)
+    // ================= STRING =================
     private Token readString() {
         pos++; // skip opening "
+
         StringBuilder sb = new StringBuilder();
+
         while (pos < source.length() && source.charAt(pos) != '"') {
             sb.append(source.charAt(pos));
             pos++;
         }
-        if (pos < source.length()) pos++; // skip closing "
+
+        // ❗ FIX 1: check if string closed properly
+        if (pos >= source.length()) {
+            throw new RuntimeException("Unterminated string at line " + line);
+        }
+
+        pos++; // skip closing "
+
         return new Token(TokenType.STRING, sb.toString(), line);
     }
 
-
+    // ================= NUMBER =================
     private Token readNumber() {
         StringBuilder sb = new StringBuilder();
-        while (pos < source.length() &&
-               (Character.isDigit(source.charAt(pos)) || source.charAt(pos) == '.')) {
-            sb.append(source.charAt(pos));
+        boolean hasDot = false;   // ❗ FIX 2: track decimal point
+
+        while (pos < source.length()) {
+            char c = source.charAt(pos);
+
+            if (Character.isDigit(c)) {
+                sb.append(c);
+            }
+            else if (c == '.') {
+                // ❗ FIX 2: allow only one dot
+                if (hasDot) {
+                    throw new RuntimeException("Invalid number format at line " + line);
+                }
+                hasDot = true;
+                sb.append(c);
+            }
+            else {
+                break;
+            }
+
             pos++;
         }
+
         return new Token(TokenType.NUMBER, sb.toString(), line);
     }
 
-    
+    // ================= WORD =================
     private Token readWord() {
         StringBuilder sb = new StringBuilder();
+
         while (pos < source.length() &&
                (Character.isLetterOrDigit(source.charAt(pos)) || source.charAt(pos) == '_')) {
             sb.append(source.charAt(pos));
             pos++;
         }
+
         String word = sb.toString();
         TokenType type = KEYWORDS.getOrDefault(word, TokenType.IDENTIFIER);
+
         return new Token(type, word, line);
     }
 }
