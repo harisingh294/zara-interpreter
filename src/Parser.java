@@ -1,87 +1,50 @@
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
-/**
- * Parser — Stage 2 of the interpreter pipeline.
- *
- * Reads the List<Token> from the Tokenizer and builds
- * a List<Instruction>. Each instruction may contain an expression tree.
- *
- * KEY CONCEPT — Operator Precedence via Recursive Descent:
- *
- *   parseExpression()  handles + and -   <- called FIRST (lowest priority)
- *     calls parseTerm()  handles * and / <- called inside parseExpression
- *       calls parsePrimary()  handles a single value (highest priority)
- *
- *   Because parseTerm is called INSIDE parseExpression, any * or /
- *   operations end up DEEPER in the tree than + or -.
- *   Deeper nodes evaluate first -> * and / always run before + and -.
- *   No special logic needed — the tree shape does it automatically.
- *
- *   Example:  x + y * 2
- *     Tree:       Add
- *                /   \
- *               x   Multiply
- *                   /    \
- *                  y      2
- *   Multiply (deeper) runs first -> 6, then Add -> x + 6
- *
- * KEY CONCEPT — Block detection (how "when" and "loop" bodies work):
- *
- *   ZARA uses indentation just like Python. Lines indented with
- *   spaces or tabs belong to the block body. The Parser pre-scans
- *   the source to record which line numbers are indented, then
- *   keeps reading instructions as long as the next token's line
- *   number is in the "indented lines" set.
- */
 public class Parser {
 
-    private final List<Token> tokens;
-    private int current;
+    private final List<Token> tokens; // list of tokens from lexer
+    private int current; // pointer to current token
+    private Set<Integer> indentedLines; // tracks indented lines for block parsing
 
-    // Line numbers that start with spaces/tabs in the source
-    private final Set<Integer> indentedLineNumbers = new HashSet<>();
-
+    // Initialize parser with token list
     public Parser(List<Token> tokens) {
-        this.tokens  = tokens;
+        this.tokens = tokens;
         this.current = 0;
+        this.indentedLines = Set.of();
     }
 
-    /**
-     * Call this before parse() to enable indentation-based block detection.
-     * Pass the same source string that was given to the Tokenizer.
-     */
+    // Preprocess source to detect indented lines
     public void setSource(String source) {
         String[] lines = source.split("\n", -1);
-        for (int i = 0; i < lines.length; i++) {
-            String ln = lines[i];
-            if (!ln.isEmpty() && (ln.charAt(0) == ' ' || ln.charAt(0) == '\t')) {
-                indentedLineNumbers.add(i + 1); // line numbers are 1-based
-            }
-        }
+
+        indentedLines = IntStream.range(0, lines.length)
+            .filter(i -> lines[i].length() > 0
+                      && (lines[i].charAt(0) == ' ' || lines[i].charAt(0) == '\t'))
+            .map(i -> i + 1) // convert to 1-based line numbers
+            .boxed()
+            .collect(Collectors.toSet());
     }
 
-    // ─────────────────────────────────────────────
-    // PUBLIC ENTRY POINT
-    // ─────────────────────────────────────────────
-
+    // Main parse function: builds list of instructions
     public List<Instruction> parse() {
         List<Instruction> instructions = new ArrayList<>();
+
         while (!isAtEnd()) {
-            skipNewlines();
+            skipNewlines(); // ignore empty lines
             if (isAtEnd()) break;
-            Instruction inst = parseInstruction();
+
+            Instruction inst = parseInstruction(); // parse next instruction
             if (inst != null) instructions.add(inst);
         }
+
         return instructions;
     }
 
-    // ─────────────────────────────────────────────
-    // INSTRUCTION PARSERS
-    // ─────────────────────────────────────────────
-
+    // Decide which instruction type to parse
     private Instruction parseInstruction() {
         switch (peek().getType()) {
             case SET:  return parseAssign();
@@ -91,120 +54,171 @@ public class Parser {
             default:
                 System.err.println("Unexpected token at line "
                     + peek().getLine() + ": '" + peek().getValue() + "'");
-                skipLine();
+                skipLine(); // skip invalid line
                 return null;
         }
     }
 
-    // Parses:  set x = expression
+    // Parse assignment: SET variable = expression
     private AssignInstruction parseAssign() {
         consume(TokenType.SET);
         String name = consume(TokenType.IDENTIFIER).getValue();
         consume(TokenType.EQUALS);
-        Expression expr = parseExpression();
+
+        Expression expr = parseExpression(); // parse right-hand expression
+
         skipNewlines();
         return new AssignInstruction(name, expr);
     }
 
-    // Parses:  show expression
+    // Parse print statement: SHOW expression
     private PrintInstruction parsePrint() {
         consume(TokenType.SHOW);
+
         Expression expr = parseExpression();
+
         skipNewlines();
         return new PrintInstruction(expr);
     }
 
-    // Parses:  when condition:\n  body...
+    // Parse IF condition block
     private IfInstruction parseIf() {
         consume(TokenType.WHEN);
-        Expression condition = parseExpression();
+
+        Expression condition = parseExpression(); // condition expression
+
         consume(TokenType.COLON);
         skipNewlines();
-        List<Instruction> body = parseBlock();
-        return new IfInstruction(condition, body);
+
+        List<Instruction> block = parseBlock(); // parse indented block
+
+        return new IfInstruction(condition, block);
     }
 
-    // Parses:  loop N:\n  body...
+    // Parse LOOP block
     private RepeatInstruction parseLoop() {
         consume(TokenType.LOOP);
-        int count = (int) Double.parseDouble(consume(TokenType.NUMBER).getValue());
+
+        double val = Double.parseDouble(consume(TokenType.NUMBER).getValue());
+
+        // ❗ FIX 2: Ensure loop count is integer
+        if (val % 1 != 0) {
+            throw new RuntimeException("Loop count must be an integer at line " + peek().getLine());
+        }
+
+        int count = (int) val;
+
         consume(TokenType.COLON);
         skipNewlines();
-        List<Instruction> body = parseBlock();
-        return new RepeatInstruction(count, body);
+
+        return new RepeatInstruction(count, parseBlock()); // parse loop body
     }
 
-    // ─────────────────────────────────────────────
-    // BLOCK PARSER
-    // Reads indented instructions until a non-indented line is found.
-    // ─────────────────────────────────────────────
-
+    // Parse a block of indented instructions
     private List<Instruction> parseBlock() {
         List<Instruction> block = new ArrayList<>();
+
         while (!isAtEnd()) {
             while (check(TokenType.NEWLINE)) advance(); // skip blank lines
             if (isAtEnd()) break;
 
-            // Stop if this line is not indented
-            if (!indentedLineNumbers.contains(peek().getLine())) break;
+            // stop when indentation ends
+            if (!indentedLines.contains(peek().getLine())) break;
 
             Instruction inst = parseInstruction();
             if (inst != null) block.add(inst);
         }
+
         return block;
     }
 
-    // ─────────────────────────────────────────────
-    // EXPRESSION PARSERS  (Recursive Descent)
-    // ─────────────────────────────────────────────
-
-    // Handles:  expr + expr   expr - expr   expr > expr   expr < expr   expr == expr
+    // Parse expressions with +, -, comparisons
     private Expression parseExpression() {
         Expression left = parseTerm();
-        while (check(TokenType.PLUS)    || check(TokenType.MINUS) ||
-               check(TokenType.GREATER) || check(TokenType.LESS)  ||
+
+        while (check(TokenType.PLUS) || check(TokenType.MINUS) ||
+               check(TokenType.GREATER) || check(TokenType.LESS) ||
                check(TokenType.EQEQ)) {
+
             String op = advance().getValue();
+
+            // ❗ FIX 3: Check incomplete expression
+            if (isAtEnd() || check(TokenType.NEWLINE)) {
+                throw new RuntimeException("Incomplete expression at line " + peek().getLine());
+            }
+
             Expression right = parseTerm();
-            left = new BinaryOpNode(left, op, right);
+
+            left = new BinaryOpNode(left, op, right); // build binary operation
         }
+
         return left;
     }
 
-    // Handles:  expr * expr   expr / expr
+    // Parse multiplication and division
     private Expression parseTerm() {
         Expression left = parsePrimary();
+
         while (check(TokenType.STAR) || check(TokenType.SLASH)) {
             String op = advance().getValue();
             Expression right = parsePrimary();
             left = new BinaryOpNode(left, op, right);
         }
+
         return left;
     }
 
-    // Handles a single value: number, string, or variable name
+    // Parse basic values: number, string, variable, unary minus
     private Expression parsePrimary() {
+
+        // ❗ FIX 1: Handle unary minus (MOST IMPORTANT)
+        if (check(TokenType.MINUS)) {
+            advance();
+            Expression right = parsePrimary();
+            return new BinaryOpNode(new NumberNode(0), "-", right);
+        }
+
         Token t = advance();
+
         switch (t.getType()) {
-            case NUMBER:     return new NumberNode(Double.parseDouble(t.getValue()));
-            case STRING:     return new StringNode(t.getValue());
-            case IDENTIFIER: return new VariableNode(t.getValue());
+            case NUMBER:
+                return new NumberNode(Double.parseDouble(t.getValue()));
+
+            case STRING:
+                return new StringNode(t.getValue());
+
+            case IDENTIFIER:
+                return new VariableNode(t.getValue());
+
             default:
                 throw new RuntimeException(
-                    "Expected a value at line " + t.getLine()
-                    + " but got: '" + t.getValue() + "' (" + t.getType() + ")");
+                    "Expected a value (number, string, or variable) at line "
+                    + t.getLine() + " but got: '" + t.getValue() + "'");
         }
     }
 
-    // ─────────────────────────────────────────────
-    // HELPERS
-    // ─────────────────────────────────────────────
+    // Look at current token without consuming
+    private Token peek() {
+        return tokens.get(current);
+    }
 
-    private Token peek()           { return tokens.get(current); }
-    private Token advance()        { if (!isAtEnd()) current++; return tokens.get(current - 1); }
-    private boolean check(TokenType t) { return !isAtEnd() && peek().getType() == t; }
-    private boolean isAtEnd()      { return current >= tokens.size() || peek().getType() == TokenType.EOF; }
+    // Move to next token
+    private Token advance() {
+        if (!isAtEnd()) current++;
+        return tokens.get(current - 1);
+    }
 
+    // Check if current token matches given type
+    private boolean check(TokenType type) {
+        return !isAtEnd() && peek().getType() == type;
+    }
+
+    // Check if parsing is finished
+    private boolean isAtEnd() {
+        return current >= tokens.size() || peek().getType() == TokenType.EOF;
+    }
+
+    // Consume expected token or throw syntax error
     private Token consume(TokenType expected) {
         if (!check(expected)) {
             Token got = peek();
@@ -216,6 +230,14 @@ public class Parser {
         return advance();
     }
 
-    private void skipNewlines() { while (check(TokenType.NEWLINE)) advance(); }
-    private void skipLine()     { while (!isAtEnd() && !check(TokenType.NEWLINE)) advance(); if (check(TokenType.NEWLINE)) advance(); }
+    // Skip newline tokens
+    private void skipNewlines() {
+        while (check(TokenType.NEWLINE)) advance();
+    }
+
+    // Skip entire current line (error recovery)
+    private void skipLine() {
+        while (!isAtEnd() && !check(TokenType.NEWLINE)) advance();
+        if (check(TokenType.NEWLINE)) advance();
+    }
 }
