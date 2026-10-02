@@ -14,7 +14,30 @@ Built as a group project for the Advanced OOP course at Sitare University.
 
 ---
 
+## Architecture
+
+ZARA follows a three-stage interpreter pipeline:
+
+``` text
+Source Code
+    ↓
+Tokenizer
+    ↓
+Tokens
+    ↓
+Parser
+    ↓
+Instructions / Expressions
+    ↓
+Evaluator
+    ↓
+Output
+```
+
 ## Language Syntax
+
+ZARA supports a simple, readable syntax for variables, expressions, conditionals, and loops.
+
 
 ```
 set x = 10
@@ -73,6 +96,11 @@ samples/
 ├── program3.zara        Conditional
 └── program4.zara        Loop
 ```
+
+## My Contribution
+
+- Implemented the **Parser** for converting tokenized input into executable instructions and expressions.
+- Contributed to the **user interface** of the project.
 
 ---
 
