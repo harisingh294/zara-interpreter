@@ -2,6 +2,8 @@
 
 A mini scripting language interpreter built from scratch in pure Java — no external libraries, no frameworks.
 
+🔗 **Live Demo:** https://zarainterpreter.vercel.app/
+
 ---
 
 ## About
